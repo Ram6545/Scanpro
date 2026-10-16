@@ -54,17 +54,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _startCameraScan(BuildContext context) async {
     final notifier = ref.read(scanSessionProvider.notifier);
     notifier.startNewSession();
-    try {
-      final count = await notifier.launchNativeAiDocumentScanner();
-      if (!context.mounted) return;
-      if (count > 0) {
-        await context.push(AppRoutes.capturedPreview);
-      }
-    } catch (_) {
-      if (context.mounted) {
-        await context.push(AppRoutes.scanner);
-      }
-    }
+    await context.push(AppRoutes.scanner);
   }
 
   Future<void> _importFromGallery(BuildContext context) async {

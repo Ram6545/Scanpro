@@ -10,6 +10,7 @@ import 'package:scanpro/core/constants/app_routes.dart';
 import 'package:scanpro/core/errors/error_handler.dart';
 import 'package:scanpro/core/services/image_processing_service.dart';
 import 'package:scanpro/data/models/page_filter.dart';
+import 'package:scanpro/features/scanner/presentation/widgets/interactive_document_crop_canvas.dart';
 import 'package:scanpro/features/scanner/providers/scan_session_provider.dart';
 
 /// Screen 4: Smart Camera Document Scanner.
@@ -162,37 +163,6 @@ class _CameraScannerScreenState extends ConsumerState<CameraScannerScreen>
     }
   }
 
-  /// Launches Google ML Kit's hardware-accelerated AI Document Scanner with
-  /// real-time edge polygon tracking, auto-capture, perspective warp, and stain removal.
-  Future<void> _launchAiEdgeScanner() async {
-    _autoCaptureTimer?.cancel();
-    // Pause our CameraController while ML Kit uses the camera hardware
-    final prevController = _controller;
-    _controller = null;
-    await prevController?.dispose();
-
-    try {
-      final count = await ref
-          .read(scanSessionProvider.notifier)
-          .launchNativeAiDocumentScanner();
-      if (!mounted) return;
-      if (count > 0) {
-        context.pushReplacement(AppRoutes.capturedPreview);
-        return;
-      }
-    } catch (e) {
-      if (mounted) {
-        ErrorHandler.showErrorSnackBar(
-          context,
-          'AI Scanner unavailable on this device. Using built-in Pro Scanner.',
-        );
-      }
-    }
-
-    if (mounted) {
-      await _initCameraController(_selectedCameraIndex);
-    }
-  }
 
   Future<void> _cycleFlashMode() async {
     final controller = _controller;
@@ -286,6 +256,7 @@ class _CameraScannerScreenState extends ConsumerState<CameraScannerScreen>
       final confirmedSettings = await showModalBottomSheet<PageEditSettings>(
         context: context,
         isScrollControlled: true,
+        enableDrag: false,
         backgroundColor: Colors.black,
         builder: (ctx) => PostCaptureEdgeCropSheet(
           rawImagePath: xfile.path,
@@ -395,27 +366,6 @@ class _CameraScannerScreenState extends ConsumerState<CameraScannerScreen>
                     color: Colors.white,
                     onPressed: () => context.pop(),
                     icon: const Icon(Icons.close_rounded),
-                  ),
-                  // Prominent AI Auto-Edge Scanner button (ML Kit Document Scanner)
-                  FilledButton.tonalIcon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF00897B),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(0, 38),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                    ),
-                    onPressed: _launchAiEdgeScanner,
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 16),
-                    label: const Text(
-                      'AI Auto-Edge Scan',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
                   ),
                   const Spacer(),
                   FilterChip(
@@ -753,13 +703,6 @@ class _CameraScannerScreenState extends ConsumerState<CameraScannerScreen>
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: _launchAiEdgeScanner,
-                icon: const Icon(Icons.auto_awesome_rounded),
-                label: const Text('Launch AI Document Scanner'),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
                 onPressed: _requestPermissionAndInitCamera,
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Retry Camera'),
@@ -798,11 +741,15 @@ class PostCaptureEdgeCropSheet extends StatefulWidget {
     required this.rawImagePath,
     required this.initialCorners,
     required this.initialFilter,
+    this.initialRotationTurns = 0,
+    this.cancelLabel = 'Retake',
   });
 
   final String rawImagePath;
   final List<Offset> initialCorners;
   final ScanFilterType initialFilter;
+  final int initialRotationTurns;
+  final String cancelLabel;
 
   @override
   State<PostCaptureEdgeCropSheet> createState() =>
@@ -819,6 +766,7 @@ class _PostCaptureEdgeCropSheetState extends State<PostCaptureEdgeCropSheet> {
     super.initState();
     _corners = List<Offset>.from(widget.initialCorners);
     _selectedFilter = widget.initialFilter;
+    _rotationTurns = widget.initialRotationTurns;
   }
 
   @override
@@ -839,8 +787,8 @@ class _PostCaptureEdgeCropSheetState extends State<PostCaptureEdgeCropSheet> {
                   TextButton.icon(
                     style: TextButton.styleFrom(foregroundColor: Colors.white),
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.replay_rounded),
-                    label: const Text('Retake'),
+                    icon: const Icon(Icons.close_rounded),
+                    label: Text(widget.cancelLabel),
                   ),
                   const Expanded(
                     child: Text(
@@ -878,90 +826,23 @@ class _PostCaptureEdgeCropSheetState extends State<PostCaptureEdgeCropSheet> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                'Drag the 4 teal corners to match your document edges. Perspective & shadows will be corrected automatically.',
+                'Drag any corner or edge to align with your document. Hold to see zoomed loupe.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ),
 
-            // Interactive 4-Corner Polygon Crop Area
+            // Interactive 4-Corner & 4-Edge Polygon Crop Area with Magnifier Loupe
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final boxW = constraints.maxWidth;
-                    final boxH = constraints.maxHeight;
-
-                    return Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: RotatedBox(
-                            quarterTurns: _rotationTurns,
-                            child: Image.file(
-                              File(widget.rawImagePath),
-                              fit: BoxFit.fill,
-                            ),
-                          ),
-                        ),
-                        IgnorePointer(
-                          child: CustomPaint(
-                            painter: _DetectedQuadOverlayPainter(
-                              corners: _corners,
-                            ),
-                          ),
-                        ),
-                        for (var i = 0; i < 4; i++)
-                          Positioned(
-                            left: (_corners[i].dx * boxW) - 22,
-                            top: (_corners[i].dy * boxH) - 22,
-                            child: GestureDetector(
-                              onPanUpdate: (details) {
-                                setState(() {
-                                  final nx =
-                                      (_corners[i].dx + details.delta.dx / boxW)
-                                          .clamp(0.0, 1.0);
-                                  final ny =
-                                      (_corners[i].dy + details.delta.dy / boxH)
-                                          .clamp(0.0, 1.0);
-                                  _corners[i] = Offset(nx, ny);
-                                });
-                              },
-                              child: Container(
-                                width: 44,
-                                height: 44,
-                                alignment: Alignment.center,
-                                color: Colors.transparent,
-                                child: Container(
-                                  width: 24,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF26A69A),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 3,
-                                    ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Colors.black54,
-                                        blurRadius: 6,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
+                padding: const EdgeInsets.all(16),
+                child: InteractiveDocumentCropCanvas(
+                  imagePath: widget.rawImagePath,
+                  corners: _corners,
+                  onCornersChanged: (newCorners) {
+                    setState(() => _corners = newCorners);
                   },
+                  accentColor: const Color(0xFF00897B),
                 ),
               ),
             ),
@@ -1041,48 +922,6 @@ class _PostCaptureEdgeCropSheetState extends State<PostCaptureEdgeCropSheet> {
       ),
     );
   }
-}
-
-class _DetectedQuadOverlayPainter extends CustomPainter {
-  const _DetectedQuadOverlayPainter({required this.corners});
-
-  final List<Offset> corners;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (corners.length != 4) return;
-    final pts = corners
-        .map((c) => Offset(c.dx * size.width, c.dy * size.height))
-        .toList();
-
-    final quadPath = Path()
-      ..moveTo(pts[0].dx, pts[0].dy)
-      ..lineTo(pts[1].dx, pts[1].dy)
-      ..lineTo(pts[2].dx, pts[2].dy)
-      ..lineTo(pts[3].dx, pts[3].dy)
-      ..close();
-
-    final maskPath = Path()
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addPath(quadPath, Offset.zero)
-      ..fillType = PathFillType.evenOdd;
-
-    canvas.drawPath(
-      maskPath,
-      Paint()..color = Colors.black.withValues(alpha: 0.52),
-    );
-
-    canvas.drawPath(
-      quadPath,
-      Paint()
-        ..color = const Color(0xFF26A69A)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.0,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _DetectedQuadOverlayPainter oldDelegate) => true;
 }
 
 /// Draws the document framing guide and teal corner target brackets over the camera feed.

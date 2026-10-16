@@ -64,11 +64,14 @@ class _CapturedPreviewScreenState extends ConsumerState<CapturedPreviewScreen> {
     final newSettings = await showModalBottomSheet<PageEditSettings>(
       context: context,
       isScrollControlled: true,
+      enableDrag: false,
       backgroundColor: Colors.black,
       builder: (ctx) => PostCaptureEdgeCropSheet(
         rawImagePath: draft.originalImagePath,
         initialCorners: draft.editSettings.corners,
         initialFilter: draft.editSettings.filter,
+        initialRotationTurns: draft.editSettings.rotationQuarterTurns,
+        cancelLabel: 'Cancel',
       ),
     );
 

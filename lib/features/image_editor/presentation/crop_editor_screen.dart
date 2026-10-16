@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +7,7 @@ import 'package:scanpro/data/models/page_filter.dart';
 import 'package:scanpro/data/models/scanned_document.dart';
 import 'package:scanpro/data/models/scanned_page.dart';
 import 'package:scanpro/features/documents/providers/documents_provider.dart';
+import 'package:scanpro/features/scanner/presentation/widgets/interactive_document_crop_canvas.dart';
 import 'package:scanpro/features/scanner/providers/scan_session_provider.dart';
 
 /// Screen 6: Crop & 4-Corner Perspective Editor.
@@ -136,96 +135,24 @@ class _CropEditorScreenState extends ConsumerState<CropEditorScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
               child: Text(
-                'Drag the 4 corner handles to align with the document edges.',
+                'Drag any corner or edge to align with your document. Hold to see zoomed loupe.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
 
-            // Interactive 4-Corner Perspective Canvas
+            // Interactive 4-Corner & 4-Edge Perspective Canvas with Magnifier Loupe
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final boxW = constraints.maxWidth;
-                    final boxH = constraints.maxHeight;
-
-                    return Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black87,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: RotatedBox(
-                            quarterTurns: _rotationQuarterTurns,
-                            child: Image.file(
-                              File(page.originalImagePath),
-                              fit: BoxFit.fill,
-                            ),
-                          ),
-                        ),
-
-                        // Quad Polygon Lines Overlay
-                        IgnorePointer(
-                          child: CustomPaint(
-                            painter: _PerspectiveQuadPainter(
-                              corners: _corners,
-                              accentColor: colorScheme.secondary,
-                            ),
-                          ),
-                        ),
-
-                        // 4 Draggable Corner Handles
-                        for (var i = 0; i < 4; i++)
-                          Positioned(
-                            left: (_corners[i].dx * boxW) - 22,
-                            top: (_corners[i].dy * boxH) - 22,
-                            child: GestureDetector(
-                              onPanUpdate: (details) {
-                                setState(() {
-                                  final nextX =
-                                      (_corners[i].dx + details.delta.dx / boxW)
-                                          .clamp(0.0, 1.0);
-                                  final nextY =
-                                      (_corners[i].dy + details.delta.dy / boxH)
-                                          .clamp(0.0, 1.0);
-                                  _corners[i] = Offset(nextX, nextY);
-                                });
-                              },
-                              child: Container(
-                                width: 44,
-                                height: 44,
-                                alignment: Alignment.center,
-                                color: Colors.transparent,
-                                child: Container(
-                                  width: 24,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    color: colorScheme.secondary,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 3,
-                                    ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Colors.black45,
-                                        blurRadius: 6,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
+                padding: const EdgeInsets.all(16),
+                child: InteractiveDocumentCropCanvas(
+                  imagePath: page.originalImagePath,
+                  corners: _corners,
+                  onCornersChanged: (newCorners) {
+                    setState(() => _corners = newCorners);
                   },
+                  accentColor: colorScheme.secondary,
                 ),
               ),
             ),
@@ -287,54 +214,5 @@ class _CropEditorScreenState extends ConsumerState<CropEditorScreen> {
       ),
     );
   }
-}
-
-class _PerspectiveQuadPainter extends CustomPainter {
-  const _PerspectiveQuadPainter({
-    required this.corners,
-    required this.accentColor,
-  });
-
-  final List<Offset> corners;
-  final Color accentColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (corners.length != 4) return;
-
-    final pts = corners
-        .map((c) => Offset(c.dx * size.width, c.dy * size.height))
-        .toList();
-
-    final quadPath = Path()
-      ..moveTo(pts[0].dx, pts[0].dy)
-      ..lineTo(pts[1].dx, pts[1].dy)
-      ..lineTo(pts[2].dx, pts[2].dy)
-      ..lineTo(pts[3].dx, pts[3].dy)
-      ..close();
-
-    // Shade area outside the selected perspective quad
-    final maskPath = Path()
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addPath(quadPath, Offset.zero)
-      ..fillType = PathFillType.evenOdd;
-
-    canvas.drawPath(
-      maskPath,
-      Paint()..color = Colors.black.withValues(alpha: 0.48),
-    );
-
-    // Draw quad outline
-    canvas.drawPath(
-      quadPath,
-      Paint()
-        ..color = accentColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.0,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _PerspectiveQuadPainter oldDelegate) => true;
 }
 

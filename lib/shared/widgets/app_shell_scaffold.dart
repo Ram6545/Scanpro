@@ -68,24 +68,14 @@ class AppShellScaffold extends ConsumerWidget {
           ),
           const SizedBox(width: 4),
         ],
-      ),
+      ), 
       body: SafeArea(child: body),
       floatingActionButton: showScanFab
           ? FloatingActionButton.extended(
-              onPressed: () async {
+              onPressed: () {
                 final notifier = ref.read(scanSessionProvider.notifier);
                 notifier.startNewSession();
-                try {
-                  final count = await notifier.launchNativeAiDocumentScanner();
-                  if (!context.mounted) return;
-                  if (count > 0) {
-                    context.push(AppRoutes.capturedPreview);
-                  }
-                } catch (_) {
-                  if (context.mounted) {
-                    context.push(AppRoutes.scanner);
-                  }
-                }
+                context.push(AppRoutes.scanner);
               },
               icon: const Icon(Icons.document_scanner_rounded),
               label: const Text('Scan'),
